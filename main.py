@@ -6,10 +6,13 @@ from shutil import copyfile
 
 mouse = Controller()
 
+
 try:
-    loading = pickle.load(open('key.dat', 'rb'))
+    loading_mouse_position = pickle.load(open('mouse.dat', 'rb'))
+    loading_execution = pickle.load(open('execution.dat', 'rb'))
 except:
-    pickle.dump('F8', open('key.dat', 'wb'))
+    pickle.dump('F8', open('mouse.dat', 'wb'))
+    pickle.dump('F2', open('execution.dat', 'wb'))
 
 
 class Execution:
@@ -29,9 +32,14 @@ class Execution:
             delay = i[3]
             repeat = i[4]
             mouse.position = x_mouse_position, y_mouse_position
-            mouse.click(Button.left, repeat)
-            time.sleep(delay)
-
+            if click == 'Left Click' or click == 'Right Click':
+                mouse.click(Button.left, repeat)
+                time.sleep(delay)
+            else:
+                for i in range(repeat):
+                    keyboard.send(click)
+                    i += 1
+                time.sleep(delay)
         conn.commit()
         conn.close()
 
@@ -53,39 +61,56 @@ class MainWindow(QMainWindow, Execution):
         self.loading_location = ''
         self.saving_location = ''
         self.setWindowTitle('Auto Mouse & Keyboard Clicker')
+        self.ui.delete_button.setDisabled(True)
         # get the position from pickle
 
-        get_position_key = pickle.load(open('key.dat', 'rb'))
+        get_position_key = pickle.load(open('mouse.dat', 'rb'))
+        get_execution_key = pickle.load(open('execution.dat', 'rb'))
         # Hotkeys
         try:
             keyboard.add_hotkey(get_position_key, lambda: self.show_coordinates())
         except ValueError:
-            os.remove('key.dat')
+            os.remove('mouse.dat')
+            os.remove('execution.dat')
             error_dialog = QtWidgets.QErrorMessage()
             error_dialog.showMessage('Value Error. The "Get Mouse Position" and "Execute Script" keys has been reset.')
             error_dialog.setWindowTitle('Error')
             app.exec_()
-            pickle.dump('F8', open('key.dat', 'wb'))
+            pickle.dump('F8', open('mouse.dat', 'wb'))
+            pickle.dump('F2', open('execution.dat', 'wb'))
+
+        # Hotkeys
 
         keyboard.add_hotkey(get_position_key, lambda: self.show_coordinates())
+        keyboard.add_hotkey(get_execution_key, lambda: self.execute_macro())
 
         # Connections
 
         self.ui.apply_position_shortcut.clicked.connect(lambda: self.assign_mouse_position_shortcut())
+        self.ui.apply_execution_shortcut.clicked.connect(lambda: self.assign_execution_shortcut())
         self.ui.add_button.clicked.connect(lambda: self.add_item_table())
-        self.ui.save_button.clicked.connect(lambda: self.save())
+        self.ui.save_as_button.clicked.connect(lambda: self.save())
         self.ui.load_button.clicked.connect(lambda: self.load())
-        self.ui.delete_button.setDisabled(True)
         self.ui.delete_all_button.clicked.connect(lambda: self.reset_table())
-        self.ui.apply_execution_shortcut.clicked.connect(lambda: self.execute_macro())
         self.ui.save_button.clicked.connect(lambda: self.update())
 
+        # Menu bar connections
+
+        self.ui.actionSave_as.triggered.connect(lambda: self.load())
+        self.ui.actionSave_As.triggered.connect(lambda: self.save())
+        self.ui.actionSave.triggered.connect(lambda: self.update())
+                                    
     # Default is F8.
     # Assigning the new key to get mouse position shortcut
     def assign_mouse_position_shortcut(self):
-        os.remove('key.dat')
+        os.remove('mouse.dat')
         shortcut_input = self.ui.get_mouse_position_shortcut.text()
-        pickle.dump(str(shortcut_input), open('key.dat', 'wb'))
+        pickle.dump(str(shortcut_input), open('mouse.dat', 'wb'))
+
+    def assign_execution_shortcut(self):
+        os.remove('execution.dat')
+        shortcut_input = self.ui.execute_script_shortcut.text()
+        pickle.dump(str(shortcut_input), open('execution.dat', 'wb'))
 
     # input the coordinates to X-Coordinate and Y-Coordinate inputs
     def show_coordinates(self):
@@ -150,7 +175,7 @@ class MainWindow(QMainWindow, Execution):
         self.saving_location = new_location[0]
         if self.saving_location != '':
             self.save_file = True
-            self.ui.save_button.setDisabled(True)
+            self.ui.save_as_button.setDisabled(True)
             old_location = os.path.dirname(os.path.realpath(__file__)) + '\data.db'
             copyfile(old_location, new_location[0])
             if ".db" not in new_location[0]:
@@ -172,24 +197,31 @@ class MainWindow(QMainWindow, Execution):
             self.load_database()
     # for the save button - saves the changes made to the file
     def update(self):
-        conn = sqlite3.connect('data.db')
-        conn2 = sqlite3.connect(self.updatable_location)
-        c = conn.cursor()
-        d = conn2.cursor()
-        c.execute("SELECT * FROM macros")
-        output = c.fetchall()
-        conn.close()
-        d.execute("DELETE FROM macros")
-        conn2.commit()
-        for row in output:
-            print(row)
-            d.execute("INSERT INTO macros VALUES(?,?,?,?,?)", (row[0],row[1],row[2],row[3],row[4]))
-        conn2.commit()
-        d.execute("SELECT * FROM macros")
-        print(d.fetchall())
+        if self.saving_location == '':
+            error_dialog = QtWidgets.QErrorMessage()
+            error_dialog.showMessage("You can't save the new changes without saving the file.")
+            error_dialog.setWindowTitle('Error')
+            app.exec_()
 
-        conn2.commit()
-        conn2.close()
+        else:
+            conn = sqlite3.connect('data.db')
+            conn2 = sqlite3.connect(self.updatable_location)
+            c = conn.cursor()
+            d = conn2.cursor()
+            c.execute("SELECT * FROM macros")
+            output = c.fetchall()
+            conn.close()
+            d.execute("DELETE FROM macros")
+            conn2.commit()
+            for row in output:
+                print(row)
+                d.execute("INSERT INTO macros VALUES(?,?,?,?,?)", (row[0],row[1],row[2],row[3],row[4]))
+            conn2.commit()
+            d.execute("SELECT * FROM macros")
+            print(d.fetchall())
+
+            conn2.commit()
+            conn2.close()
 
     def load_database(self):
         conn = sqlite3.connect(self.loading_location)
@@ -227,17 +259,6 @@ class MainWindow(QMainWindow, Execution):
                 self.ui.macro_table.item(i, 4).text()))
         conn.commit()
         conn.close()
-
-    # TEST METHOD - TO BE DELETED
-    def get_database(self):
-        conn = sqlite3.connect('data.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM macros")
-        for i in c.fetchall():
-            print(i[0])
-        conn.commit()
-        conn.close()
-        self.execute_macro()
 
     def delete_item_from_table(self):
         pass
